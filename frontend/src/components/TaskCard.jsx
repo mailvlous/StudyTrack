@@ -41,9 +41,21 @@ export default function TaskCard({ task, onToggleStatus, onDelete }) {
         {task.deskripsi && <div className="meta">{task.deskripsi}</div>}
       </div>
       <div style={{ textAlign: "right" }}>
-        <span className={`badge ${task.status}`}>
-          {task.status === "selesai" ? "Selesai" : "Belum"}
-        </span>
+        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+          {task.deadline_category === "approaching" && (
+            <span className="badge approaching">
+              Mendekati Deadline
+            </span>
+          )}
+          {task.deadline_category === "overdue" && (
+            <span className="badge overdue">
+              Overdue
+            </span>
+          )}
+          <span className={`badge ${task.status}`}>
+            {task.status === "selesai" ? "Selesai" : "Belum"}
+          </span>
+        </div>
         <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
           <button className="btn" onClick={() => onToggleStatus(task)}>
             {task.status === "selesai" ? "Tandai Belum" : "Tandai Selesai"}

@@ -88,6 +88,16 @@ a {
   color: #065f46;
 }
 
+.badge.approaching {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.badge.overdue {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 form {
   display: flex;
   flex-direction: column;
