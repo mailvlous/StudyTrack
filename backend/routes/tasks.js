@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { readDB, writeDB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
+import { parseLocalDeadline, determineDeadlineCategory } from "../utils/deadline.js";
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.use(requireAuth);
  * Daftar seluruh tugas milik pengguna yang sedang login, lintas semua mata
  * kuliah. Setiap tugas menyertakan `mata_kuliah` (nama mata kuliahnya).
  *
- * Urutan saat ini: `created_at` terbaru di atas.
+ * Urutan: tugas approaching di atas, kemudian created_at terbaru.
  *
  * Response : 200 { tasks }
  *
@@ -23,13 +24,28 @@ router.use(requireAuth);
  */
 router.get("/", (req, res) => {
   const db = readDB();
+
+  const now = new Date();
+  
   const tasks = db.tasks
     .filter((t) => t.user_id === req.user.id)
     .map((t) => {
       const course = db.courses.find((c) => c.id === t.mata_kuliah_id);
-      return { ...t, mata_kuliah: course ? course.name : null };
+      const parsedDeadline = parseLocalDeadline(t.deadline);
+      
+      const deadlineCategory = parsedDeadline
+        ? determineDeadlineCategory(parsedDeadline, now)
+        : null;
+      
+      return { ...t, mata_kuliah: course ? course.name : null, deadline_category: deadlineCategory };
     })
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    .sort((a, b) => {
+      const priorityDifference =
+        (a.deadline_category === "approaching" ? 0 : 1) -
+        (b.deadline_category === "approaching" ? 0 : 1);
+    
+      return priorityDifference || new Date(b.created_at) - new Date(a.created_at);
+    });
 
   res.json({ tasks });
 });
