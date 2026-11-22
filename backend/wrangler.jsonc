@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "studytrack",
+  "main": "./worker.js",
+  "compatibility_date": "2026-11-22",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "studytrack-db",
+      "database_id": "d0ee0308-5d37-4061-8f64-2df4c51b0954",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

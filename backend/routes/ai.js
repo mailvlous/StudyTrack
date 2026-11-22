@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { readDB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { generateTaskPlan } from "../services/aiPlanner.js";
 
@@ -14,15 +13,21 @@ router.post("/task-plan", async (req, res) => {
     return res.status(400).json({ error: "taskId harus berupa integer positif." });
   }
 
+  const env = req.app.locals.env;
+  const db = env?.DB;
+  if (!db) {
+    return res.status(500).json({ error: "Konfigurasi server tidak lengkap." });
+  }
+
   let task;
   try {
-    const db = readDB();
-    task = db.tasks.find(
-      (item) => item.id === taskId && item.user_id === req.user.id
-    );
+    task = await db
+      .prepare("SELECT * FROM tasks WHERE id = ? AND user_id = ? LIMIT 1")
+      .bind(taskId, req.user.id)
+      .first();
   } catch (error) {
     console.error("AI task plan database lookup failed:", error);
-    return res.status(500).json({ error: "Gagal membaca data tugas." });
+    return res.status(500).json({ error: "Terjadi kesalahan pada server." });
   }
 
   if (!task) {
@@ -30,7 +35,7 @@ router.post("/task-plan", async (req, res) => {
   }
 
   try {
-    const plan = await generateTaskPlan(task);
+    const plan = await generateTaskPlan(task, env);
     return res.json({ plan });
   } catch (error) {
     console.error("AI task plan generation failed:", error);

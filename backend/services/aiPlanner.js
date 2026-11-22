@@ -1,21 +1,4 @@
-import "../config.js";
 import { GoogleGenAI, Type } from "@google/genai";
-
-let ai;
-
-function getAIClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not configured.");
-  }
-
-  if (!ai) {
-    ai = new GoogleGenAI({ apiKey });
-  }
-
-  return ai;
-}
 
 const taskPlanSchema = {
   type: Type.OBJECT,
@@ -40,13 +23,20 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-export async function generateTaskPlan(task) {
+export async function generateTaskPlan(task, env) {
   if (!task || typeof task !== "object" || !isNonEmptyString(task.judul)) {
     throw new Error("A task with a non-empty title is required.");
   }
 
-  const response = await getAIClient().models.generateContent({
-    model: process.env.GEMINI_MODEL || "gemini-3.5-flash-lite",
+  const apiKey = env?.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not configured.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const response = await ai.models.generateContent({
+    model: env.GEMINI_MODEL || "gemini-3.5-flash-lite",
     contents: JSON.stringify({
       judul: task.judul,
       deskripsi: typeof task.deskripsi === "string" ? task.deskripsi : ""

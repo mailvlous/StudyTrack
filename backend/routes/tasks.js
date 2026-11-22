@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { readDB, writeDB } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { parseLocalDeadline, determineDeadlineCategory } from "../utils/deadline.js";
 
@@ -16,38 +15,59 @@ router.use(requireAuth);
  * Urutan: tugas approaching di atas, kemudian created_at terbaru.
  *
  * Response : 200 { tasks }
- *
- * CATATAN UNTUK PESERTA STUDI KASUS:
- * Ini adalah titik yang relevan untuk fitur "Reminder Tugas Mendekati Deadline".
- * Silakan tambahkan logic untuk menandai/mengurutkan ulang tugas yang
- * sisa waktunya < 24 jam di sini (atau di tempat lain sesuai rancangan Anda).
  */
-router.get("/", (req, res) => {
-  const db = readDB();
+router.get("/", async (req, res) => {
+  const db = req.app.locals.env?.DB;
+  if (!db) {
+    return res.status(500).json({ error: "Konfigurasi server tidak lengkap." });
+  }
 
-  const now = new Date();
-  
-  const tasks = db.tasks
-    .filter((t) => t.user_id === req.user.id)
-    .map((t) => {
-      const course = db.courses.find((c) => c.id === t.mata_kuliah_id);
-      const parsedDeadline = parseLocalDeadline(t.deadline);
-      
-      const deadlineCategory = parsedDeadline
-        ? determineDeadlineCategory(parsedDeadline, now)
-        : null;
-      
-      return { ...t, mata_kuliah: course ? course.name : null, deadline_category: deadlineCategory };
-    })
-    .sort((a, b) => {
-      const priorityDifference =
-        (a.deadline_category === "approaching" ? 0 : 1) -
-        (b.deadline_category === "approaching" ? 0 : 1);
-    
-      return priorityDifference || new Date(b.created_at) - new Date(a.created_at);
-    });
+  try {
+    const result = await db
+      .prepare(
+        `SELECT
+           t.id,
+           t.user_id,
+           t.mata_kuliah_id,
+           t.judul,
+           t.deskripsi,
+           t.deadline,
+           t.status,
+           t.created_at,
+           c.name AS mata_kuliah
+         FROM tasks AS t
+         LEFT JOIN courses AS c
+           ON c.id = t.mata_kuliah_id
+           AND c.user_id = t.user_id
+         WHERE t.user_id = ?`
+      )
+      .bind(req.user.id)
+      .all();
 
-  res.json({ tasks });
+    const now = new Date();
+
+    const tasks = result.results
+      .map((task) => {
+        const parsedDeadline = parseLocalDeadline(task.deadline);
+        const deadlineCategory = parsedDeadline
+          ? determineDeadlineCategory(parsedDeadline, now)
+          : null;
+
+        return { ...task, deadline_category: deadlineCategory };
+      })
+      .sort((a, b) => {
+        const priorityDifference =
+          (a.deadline_category === "approaching" ? 0 : 1) -
+          (b.deadline_category === "approaching" ? 0 : 1);
+
+        return priorityDifference || new Date(b.created_at) - new Date(a.created_at);
+      });
+
+    return res.json({ tasks });
+  } catch (error) {
+    console.error("Tasks list failed:", error);
+    return res.status(500).json({ error: "Terjadi kesalahan pada server." });
+  }
 });
 
 /**
@@ -56,14 +76,32 @@ router.get("/", (req, res) => {
  *
  * Response : 200 { task } | 404 tidak ditemukan
  */
-router.get("/:id", (req, res) => {
+router.get("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const db = readDB();
-  const task = db.tasks.find((t) => t.id === id && t.user_id === req.user.id);
-  if (!task) {
+  if (!Number.isSafeInteger(id) || id <= 0) {
     return res.status(404).json({ error: "Tugas tidak ditemukan." });
   }
-  res.json({ task });
+
+  const db = req.app.locals.env?.DB;
+  if (!db) {
+    return res.status(500).json({ error: "Konfigurasi server tidak lengkap." });
+  }
+
+  try {
+    const task = await db
+      .prepare("SELECT * FROM tasks WHERE id = ? AND user_id = ? LIMIT 1")
+      .bind(id, req.user.id)
+      .first();
+
+    if (!task) {
+      return res.status(404).json({ error: "Tugas tidak ditemukan." });
+    }
+
+    return res.json({ task });
+  } catch (error) {
+    console.error("Task detail failed:", error);
+    return res.status(500).json({ error: "Terjadi kesalahan pada server." });
+  }
 });
 
 /**
@@ -73,20 +111,18 @@ router.get("/:id", (req, res) => {
  * Body     : { mata_kuliah_id, judul, deadline, deskripsi? }
  * Response : 201 { task } | 400 input tidak valid atau mata kuliah bukan milik user
  */
-router.post("/", (req, res) => {
-  const { mata_kuliah_id, judul, deskripsi, deadline } = req.body;
+router.post("/", async (req, res) => {
+  const { mata_kuliah_id, judul, deskripsi, deadline } = req.body ?? {};
   if (!mata_kuliah_id || !judul || !deadline) {
     return res.status(400).json({ error: "mata_kuliah_id, judul, dan deadline wajib diisi." });
   }
 
-  const db = readDB();
-  const course = db.courses.find((c) => c.id === Number(mata_kuliah_id) && c.user_id === req.user.id);
-  if (!course) {
-    return res.status(400).json({ error: "Mata kuliah tidak ditemukan untuk user ini." });
+  const db = req.app.locals.env?.DB;
+  if (!db) {
+    return res.status(500).json({ error: "Konfigurasi server tidak lengkap." });
   }
 
-  const newTask = {
-    id: db.nextIds.task++,
+  const task = {
     user_id: req.user.id,
     mata_kuliah_id: Number(mata_kuliah_id),
     judul,
@@ -95,9 +131,45 @@ router.post("/", (req, res) => {
     status: "belum",
     created_at: new Date().toISOString()
   };
-  db.tasks.push(newTask);
-  writeDB(db);
-  res.status(201).json({ task: newTask });
+
+  try {
+    const result = await db
+      .prepare(
+        `INSERT INTO tasks (
+           user_id,
+           mata_kuliah_id,
+           judul,
+           deskripsi,
+           deadline,
+           status,
+           created_at
+         )
+         SELECT ?, id, ?, ?, ?, 'belum', ?
+         FROM courses
+         WHERE id = ? AND user_id = ?`
+      )
+      .bind(
+        task.user_id,
+        task.judul,
+        task.deskripsi,
+        task.deadline,
+        task.created_at,
+        task.mata_kuliah_id,
+        task.user_id
+      )
+      .run();
+
+    if (result.meta.changes === 0) {
+      return res.status(400).json({ error: "Mata kuliah tidak ditemukan untuk user ini." });
+    }
+
+    return res.status(201).json({
+      task: { id: result.meta.last_row_id, ...task }
+    });
+  } catch (error) {
+    console.error("Task creation failed:", error);
+    return res.status(500).json({ error: "Terjadi kesalahan pada server." });
+  }
 });
 
 /**
@@ -108,26 +180,66 @@ router.post("/", (req, res) => {
  * Body     : { judul?, deskripsi?, deadline?, status? } (status: "belum" | "selesai")
  * Response : 200 { task } | 400 status tidak valid | 404 tidak ditemukan
  */
-router.put("/:id", (req, res) => {
+router.put("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const db = readDB();
-  const task = db.tasks.find((t) => t.id === id && t.user_id === req.user.id);
-  if (!task) {
+  if (!Number.isSafeInteger(id) || id <= 0) {
     return res.status(404).json({ error: "Tugas tidak ditemukan." });
   }
 
-  const { judul, deskripsi, deadline, status } = req.body;
-  if (judul !== undefined) task.judul = judul;
-  if (deskripsi !== undefined) task.deskripsi = deskripsi;
-  if (deadline !== undefined) task.deadline = deadline;
-  if (status !== undefined) {
-    if (!["belum", "selesai"].includes(status)) {
+  const db = req.app.locals.env?.DB;
+  if (!db) {
+    return res.status(500).json({ error: "Konfigurasi server tidak lengkap." });
+  }
+
+  const { judul, deskripsi, deadline, status } = req.body ?? {};
+
+  try {
+    const existing = await db
+      .prepare("SELECT * FROM tasks WHERE id = ? AND user_id = ? LIMIT 1")
+      .bind(id, req.user.id)
+      .first();
+
+    if (!existing) {
+      return res.status(404).json({ error: "Tugas tidak ditemukan." });
+    }
+
+    if (status !== undefined && !["belum", "selesai"].includes(status)) {
       return res.status(400).json({ error: "Status hanya boleh 'belum' atau 'selesai'." });
     }
-    task.status = status;
+
+    const task = {
+      judul: judul !== undefined ? judul : existing.judul,
+      deskripsi: deskripsi !== undefined ? deskripsi : existing.deskripsi,
+      deadline: deadline !== undefined ? deadline : existing.deadline,
+      status: status !== undefined ? status : existing.status
+    };
+
+    const result = await db
+      .prepare(
+        `UPDATE tasks
+         SET judul = ?, deskripsi = ?, deadline = ?, status = ?
+         WHERE id = ? AND user_id = ?`
+      )
+      .bind(task.judul, task.deskripsi, task.deadline, task.status, id, req.user.id)
+      .run();
+
+    if (result.meta.changes === 0) {
+      return res.status(404).json({ error: "Tugas tidak ditemukan." });
+    }
+
+    return res.json({
+      task: {
+        id: existing.id,
+        user_id: existing.user_id,
+        mata_kuliah_id: existing.mata_kuliah_id,
+        created_at: existing.created_at,
+        ...task
+      }
+    });
+  } catch (error) {
+    console.error("Task update failed:", error);
+    return res.status(500).json({ error: "Terjadi kesalahan pada server." });
   }
-  writeDB(db);
-  res.json({ task });
 });
 
 /**
@@ -136,17 +248,32 @@ router.put("/:id", (req, res) => {
  *
  * Response : 200 { success: true } | 404 tidak ditemukan
  */
-router.delete("/:id", (req, res) => {
+router.delete("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const db = readDB();
-  const task = db.tasks.find((t) => t.id === id && t.user_id === req.user.id);
-  if (!task) {
+  if (!Number.isSafeInteger(id) || id <= 0) {
     return res.status(404).json({ error: "Tugas tidak ditemukan." });
   }
 
-  db.tasks = db.tasks.filter((t) => t.id !== id);
-  writeDB(db);
-  res.json({ success: true });
+  const db = req.app.locals.env?.DB;
+  if (!db) {
+    return res.status(500).json({ error: "Konfigurasi server tidak lengkap." });
+  }
+
+  try {
+    const result = await db
+      .prepare("DELETE FROM tasks WHERE id = ? AND user_id = ?")
+      .bind(id, req.user.id)
+      .run();
+
+    if (result.meta.changes === 0) {
+      return res.status(404).json({ error: "Tugas tidak ditemukan." });
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Task deletion failed:", error);
+    return res.status(500).json({ error: "Terjadi kesalahan pada server." });
+  }
 });
 
 export default router;

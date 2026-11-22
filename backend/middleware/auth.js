@@ -1,5 +1,4 @@
 import jwt from "jsonwebtoken";
-import { JWT_SECRET } from "../config.js";
 
 /**
  * Middleware autentikasi. Memverifikasi JWT dari header
@@ -9,6 +8,12 @@ import { JWT_SECRET } from "../config.js";
  * dan request diteruskan. Jika tidak, server membalas 401.
  */
 export function requireAuth(req, res, next) {
+  const jwtSecret = req.app.locals.env?.JWT_SECRET;
+
+  if (!jwtSecret) {
+    return res.status(500).json({ error: "Konfigurasi server tidak lengkap." });
+  }
+
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
 
@@ -17,7 +22,7 @@ export function requireAuth(req, res, next) {
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, jwtSecret);
     req.user = { id: payload.sub, nama: payload.nama, email: payload.email };
     next();
   } catch {
