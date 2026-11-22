@@ -11,6 +11,7 @@ import { PORT } from "./config.js";
 import authRoutes from "./routes/auth.js";
 import courseRoutes from "./routes/courses.js";
 import taskRoutes from "./routes/tasks.js";
+import aiRoutes from "./routes/ai.js";
 import { resetDB } from "./db.js";
 
 const app = express();
@@ -26,6 +27,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/courses", courseRoutes);
 app.use("/api/tasks", taskRoutes);
+app.use("/api/ai", aiRoutes);
 
 /*
  * POST /api/dev/reset - mengembalikan data ke kondisi seed awal.

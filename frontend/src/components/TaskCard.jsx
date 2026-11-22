@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState } from "react";
+import api from "../api";
 
 /**
  * Memformat deadline ke tampilan lokal Indonesia, contoh: "03 Jul 2026, 23.59".
@@ -32,6 +33,28 @@ function formatDeadline(deadline) {
  * komponen ini), tergantung rancangan Anda.
  */
 export default function TaskCard({ task, onToggleStatus, onDelete }) {
+  const [plan, setPlan] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [aiError, setAiError] = useState(null);
+
+  async function handleGeneratePlan() {
+    setIsGenerating(true);
+    setAiError(null);
+
+    try {
+      const response = await api.post("/ai/task-plan", {
+        taskId: task.id
+      });
+      setPlan(response.data.plan);
+    } catch (error) {
+      setAiError(
+        error.response?.data?.error || "Gagal membuat rencana tugas."
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
   return (
     <div className="card task-card">
       <div>
@@ -39,6 +62,20 @@ export default function TaskCard({ task, onToggleStatus, onDelete }) {
         <div className="meta">{task.mata_kuliah}</div>
         <div className="meta">Deadline: {formatDeadline(task.deadline)}</div>
         {task.deskripsi && <div className="meta">{task.deskripsi}</div>}
+        {plan && (
+          <section className="ai-plan" aria-live="polite">
+            <h4>AI Task Plan</h4>
+            <p>{plan.summary}</p>
+            <ol>
+              {plan.steps.map((step, index) => (
+                <li key={`${index}-${step.title}`}>
+                  <strong>{step.title}</strong>
+                  <p>{step.description}</p>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
       </div>
       <div style={{ textAlign: "right" }}>
         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
@@ -57,13 +94,46 @@ export default function TaskCard({ task, onToggleStatus, onDelete }) {
           </span>
         </div>
         <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-          <button className="btn" onClick={() => onToggleStatus(task)}>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => onToggleStatus(task)}
+          >
             {task.status === "selesai" ? "Tandai Belum" : "Tandai Selesai"}
           </button>
-          <button className="btn" onClick={() => onDelete(task.id)}>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => onDelete(task.id)}
+          >
             Hapus
           </button>
+          <button
+            className="btn"
+            onClick={handleGeneratePlan}
+            disabled={isGenerating}
+            type="button"
+          >
+            {isGenerating
+              ? "Generating..."
+              : plan
+                ? "Generate Again"
+                : "Generate AI Plan"}
+          </button>
         </div>
+        {aiError && (
+          <div className="ai-error" role="alert">
+            {aiError}
+            <button
+              type="button"
+              className="btn"
+              onClick={handleGeneratePlan}
+              disabled={isGenerating}
+            >
+              Coba Lagi
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
