@@ -12,12 +12,42 @@ import courseRoutes from "./routes/courses.js";
 import taskRoutes from "./routes/tasks.js";
 import aiRoutes from "./routes/ai.js";
 
+/** Origin frontend production bila `FRONTEND_ORIGIN` tidak diset. */
+const DEFAULT_FRONTEND_ORIGIN = "https://studytrack-frontend.pages.dev";
+
+/** Origin development lokal yang selalu diizinkan. */
+const LOCAL_DEV_ORIGINS = ["http://localhost:5173"];
+
+function getAllowedOrigins(env) {
+  const origins = new Set(LOCAL_DEV_ORIGINS);
+  origins.add(env?.FRONTEND_ORIGIN || DEFAULT_FRONTEND_ORIGIN);
+
+  // Origin tambahan (misalnya domain custom) lewat env, dipisahkan koma.
+  if (env?.CORS_ORIGINS) {
+    for (const origin of env.CORS_ORIGINS.split(",")) {
+      const trimmed = origin.trim();
+      if (trimmed) origins.add(trimmed);
+    }
+  }
+
+  return origins;
+}
+
 export function createApp(env) {
   const app = express();
 
   app.locals.env = env;
 
-  app.use(cors());
+  const allowedOrigins = getAllowedOrigins(env);
+
+  app.use(
+    cors({
+      origin(origin, callback) {
+        // Request tanpa Origin (same-origin, curl, health check) tetap dilayani.
+        callback(null, !origin || allowedOrigins.has(origin));
+      }
+    })
+  );
   app.use(express.json());
 
   // GET /api/health - cek apakah server sedang berjalan
